@@ -1,0 +1,109 @@
+#!/usr/bin/perl
+
+use v5.36;
+use strict;
+use warnings;
+
+use Getopt::Long;
+use Mojo::Log;
+use Mojo::UserAgent;
+use Term::ReadKey;
+use Data::Printer output => 'stdout';
+use Path::Tiny;
+
+# create a logger
+my $log = Mojo::Log->new->color(1);
+
+# defaults
+my $dn = '';
+
+# get command-line options
+GetOptions(
+  'host|h=s' => \my $host,
+  'dn|d=s'   => \$dn,
+  'post|p=s' => \my $post,
+) or die "Invalid command-line arguments\n";
+
+die "No host given\n" unless $host;
+
+# load file to POST
+my $postfile;
+if($post) {
+  $postfile = path($post)->slurp_utf8 || die "Cannot load POST file\n";
+  $log->info('Loaded POST content from', $post);
+}
+
+my $json;
+my $res;
+
+# prepare client
+my $ua = Mojo::UserAgent->new->insecure(1);
+$ua->cookie_jar->file(path($ENV{HOME})->child('.apic-cookie'));
+$ua->cookie_jar->load;
+
+# check if we have valid session, and if we don't get credentials and log in
+unless($ua->get("https://$host/api/mo/.json")->result->is_success) {
+
+  # get credentials
+  print 'Username: ';
+  chomp(my $username = ReadLine(0));
+
+  print 'Password: ';
+  ReadMode('noecho');
+  chomp(my $password = ReadLine(0));
+  ReadMode('restore');
+  print "\n";
+
+  # perform login
+  $log->info('Logging in as', $username);
+  $res = $ua->post(
+    "https://$host/api/aaaLogin.json",
+    json => {
+      aaaUser => {
+        attributes => {
+          name => $username,
+          pwd => $password
+        }
+      }
+    }
+  )->result;
+
+  # handle error
+  if($res->is_error) {
+    $log->error('Login failed', $res->code, $res->message);
+    exit(1);
+  }
+
+  # handle success
+  elsif($res->is_success) {
+    $log->info('Successfully logged in as', $username);
+    $ua->cookie_jar->save;
+  }
+}
+
+# perform request
+if($post) {
+
+  $res = $ua->post("https://$host/api/mo/.xml", {}, $postfile)->result;
+  $log->info('POSTed content');
+
+} else {
+  # DN request
+  $res = $ua->get(
+    "https://$host/api/mo/$dn.json"
+  )->result;
+}
+
+# handle error
+if($res->is_error) {
+  $log->info(sprintf('%03d %s', $res->code, $res->message));
+  $log->error('Request failed:', $res->code, $res->message);
+  exit(1);
+}
+
+# handle success
+elsif($res->is_success) {
+  $log->info(sprintf('%03d %s', $res->code, $res->message));
+  $log->info('Request successful');
+  p $res->json if $res->json;
+}
