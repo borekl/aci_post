@@ -1,5 +1,10 @@
 #!/usr/bin/perl
 
+# aci_post -h prg-apic-01 -p config.xml
+#
+# Simple utility to post a XML file to Cisco ACI controller (APIC). Session
+# token is saved to a local file (.apic-cookie) for subsequent requests.
+
 use v5.36;
 use strict;
 use warnings;
@@ -19,9 +24,9 @@ my $dn = '';
 
 # get command-line options
 GetOptions(
-  'host|h=s' => \my $host,
-  'dn|d=s'   => \$dn,
-  'post|p=s' => \my $post,
+  'host|h=s' => \my $host,    # specify destination APIC
+  'dn|d=s'   => \$dn,         # specify DN to post at
+  'post|p=s' => \my $post,    # XML file to post
 ) or die "Invalid command-line arguments\n";
 
 die "No host given\n" unless $host;
@@ -98,6 +103,7 @@ if($post) {
 if($res->is_error) {
   $log->info(sprintf('%03d %s', $res->code, $res->message));
   $log->error('Request failed:', $res->code, $res->message);
+  print($res->body, "\n") if $res->body_size;
   exit(1);
 }
 
